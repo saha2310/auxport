@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Как думает ИИ</title>
+<style>
+:root{--bg:#0b0d12;--p:#14171e;--b:#262b37;--t:#e9ebf1;--m:#8a91a2;--a:#6c8cff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:15px/1.5 system-ui,sans-serif;padding:14px;max-width:900px;margin:auto}
+h1{font-size:22px;margin:6px 0 12px}h2{font-size:17px;margin:0 0 4px}
+.card{background:var(--p);border:1px solid var(--b);border-radius:14px;padding:14px;margin-bottom:14px}
+.h{color:var(--m);font-size:13px;margin:0 0 10px}
+.drop{text-align:center;border-style:dashed}
+input,select,button{font:inherit;color:var(--t);background:#1b1f29;border:1px solid var(--b);border-radius:10px;padding:8px 12px}
+input[type=text]{width:100%}button{cursor:pointer}button.p{background:var(--a);border:0;color:#fff}
+.chip{display:inline-block;margin:2px;padding:3px 8px;border-radius:8px;font-size:13px;border:1px solid var(--b)}
+.chip small{color:var(--m);margin-left:4px}
+.bar{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px}
+.bar i{display:block;height:14px;background:var(--a);border-radius:4px}.bar b{width:90px;font-weight:400;overflow:hidden;white-space:nowrap}
+.grid{display:grid;grid-template-columns:auto repeat(8,1fr) auto;gap:4px;align-items:center;font-size:12px}
+.grid button{padding:6px 0}.off{background:#5a1f26!important;text-decoration:line-through}
+canvas{max-width:100%;border:1px solid var(--b);border-radius:8px;background:#000}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+#out{white-space:pre-wrap;background:#0b0d12;border-radius:10px;padding:10px;margin-top:8px;min-height:40px}
+</style></head><body>
+<h1>🔬 Как думает ИИ</h1>
+<div class="card drop" id="load">
+<p><b>Откройте свой <code>chat.html</code></b> (перетащите сюда или выберите файл) — модель из него загрузится целиком прямо в браузере, ничего никуда не отправляется.</p>
+<input type="file" id="f" accept=".html,.htm"><p class="h" id="st"></p></div>
+
+<div id="app" hidden>
+<div class="card"><h2>1. Текст → токены</h2>
+<p class="h">ИИ не читает буквы как мы: сначала текст режется на кусочки (токены), у каждого есть номер. Всё, что модель «знает» о тексте, — эти номера.</p>
+<input type="text" id="txt" value="привет, как дела?">
+<div class="row"><button class="p" id="go">Прогнать через модель</button></div><div id="chips"></div></div>
+
+<div class="card"><h2>2. Внимание: на что смотрит модель</h2>
+<p class="h">Каждый токен «оглядывается» на предыдущие. Чем ярче клетка, тем сильнее слово слева (строка) опирается на слово сверху (столбец). У модели 6 слоёв по 8 «голов» — у каждой свой стиль смотреть.</p>
+<div class="row">Слой <select id="L"></select> Голова <select id="Hd"></select></div><canvas id="att"></canvas></div>
+
+<div class="card"><h2>3. Что дальше? Вероятности слов</h2>
+<p class="h">В конце модель даёт каждому возможному токену оценку. Температура: низкая — всегда самое вероятное, высокая — больше случайности.</p>
+<div class="row">Температура <input type="range" id="T" min="0.1" max="2" step="0.05" value="0.75"> <span id="Tv">0.75</span></div>
+<div id="bars"></div>
+<div class="row"><button class="p" id="gen">Сгенерировать ответ</button></div><div id="out"></div></div>
+
+<div class="card"><h2>4. Ломаем модель: отключаем части</h2>
+<p class="h">Нажмите на голову или на «ФФН» (блок «размышления» слоя), чтобы выключить — и посмотрите, как изменятся вероятности и ответ. Красное = отключено.</p>
+<div class="grid" id="hg"></div>
+<div class="row"><button id="rst">↺ Вернуть всё как было</button>
+<button class="p" id="exp">⬇ Скачать изменённый chat.html</button></div></div>
+
+<div class="card"><h2>5. Подталкиваем слово</h2>
+<p class="h">Добавьте «бонус» токену: положительный — модель чаще его выбирает, отрицательный — избегает. Введите токен как в словаре (слово целиком или его кусочек).</p>
+<div class="row"><input type="text" id="tk" placeholder="например: привет" style="flex:1;min-width:140px"><input type="range" id="bv" min="-10" max="10" step="0.5" value="3"><span id="bvv">+3</span><button id="bset">Применить</button></div><p class="h" id="bmsg"></p></div>
+
+<div class="card"><h2>6. Сами веса — это просто числа</h2>
+<p class="h">Каждая клетка — один вес (синий — плюс, красный — минус, ярче = сильнее). Показан угол матрицы 128×128. <b>Нажмите на клетку, чтобы обнулить вес</b> и посмотреть, что изменится.</p>
+<div class="row"><select id="tn"></select></div><canvas id="wc"></canvas><p class="h" id="wi"></p></div>
+</div>
+
+<script>
+const $=i=>document.getElementById(i),gelu=x=>.5*x*(1+Math.tanh(.7978845608*(x+.044715*x*x*x)));
+let HEAD,TAIL,U8,ORIG,META,W,C,SP,TOK2ID=new Map(),RANK=new Map(),KC,VC,cap,LG,IDS=[],offH=new Set(),offF=new Set(),V;
+const og=v=>v instanceof Int8Array?new Int8Array(ORIG.buffer,v.byteOffset,v.length):new Float32Array(ORIG.buffer,v.byteOffset,v.length);
+const ts=i=>(V[i]||'').replace(/ /g,'·').replace(/\n/g,'↵')||'∅';
+$('f').onchange=e=>load(e.target.files[0]);
+$('load').ondragover=e=>e.preventDefault();$('load').ondrop=e=>{e.preventDefault();load(e.dataTransfer.files[0])};
+async function load(file){try{$('st').textContent='Загрузка модели…';await new Promise(r=>setTimeout(r,30));
+const t=await file.text(),m=/(<script type="text\/plain" id="payload">)([\s\S]*?)(<\/script>)/.exec(t);
+if(!m)throw Error('в файле нет модели — нужен chat.html');
+HEAD=t.slice(0,m.index+m[1].length);TAIL=t.slice(m.index+m[1].length+m[2].length);
+const bin=atob(m[2].trim());U8=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)U8[i]=bin.charCodeAt(i);
+ORIG=U8.slice();const jl=new DataView(U8.buffer).getUint32(4,true);
+META=JSON.parse(new TextDecoder().decode(U8.subarray(8,8+jl)));const bs=(8+jl+3)&~3;C=META.config;SP=META.special;V=META.vocab;W={};
+for(const[n,t]of Object.entries(META.tensors)){if(t.q){const r=t.shape[0],c=t.shape[1];W[n]={rows:r,cols:c,s:new Float32Array(U8.buffer,bs+t.so,r),q:new Int8Array(U8.buffer,bs+t.qo,r*c)}}else W[n]=new Float32Array(U8.buffer,bs+t.o,t.shape[0])}
+V.forEach((v,i)=>{if(v!==''&&!TOK2ID.has(v))TOK2ID.set(v,i)});META.merges.forEach((m,r)=>RANK.set(m[0]+'\u0001'+m[1],r));
+init();$('st').textContent='Модель загружена ✓';}catch(e){$('st').textContent='Ошибка: '+e.message}}
+
+// ---- токенизатор
+const bpe=p=>{let a=Array.from(p);while(a.length>1){let br=1e9,x,y;for(let i=0;i<a.length-1;i++){const r=RANK.get(a[i]+'\u0001'+a[i+1]);if(r!==undefined&&r<br){br=r;x=a[i];y=a[i+1]}}
+if(br===1e9)break;const n=[];for(let i=0;i<a.length;){if(i<a.length-1&&a[i]===x&&a[i+1]===y){n.push(x+y);i+=2}else n.push(a[i++])}a=n}
+return a.map(s=>TOK2ID.get(s)).filter(i=>i!==undefined)};
+const enc=t=>[SP['<|user|>'],...(t.toLowerCase().match(/\S+|\s+/g)||[]).flatMap(bpe).slice(-90),SP['<|bot|>']];
+
+// ---- модель
+function mv(M,x,o,b){const{q,s,rows,cols}=M;for(let r=0;r<rows;r++){let t=0;const p=r*cols;for(let j=0;j<cols;j++)t+=q[p+j]*x[j];o[r]=t*s[r]+(b?b[r]:0)}}
+function ln(x,w,b,o){const n=x.length;let m=0;for(let i=0;i<n;i++)m+=x[i];m/=n;let v=0;for(let i=0;i<n;i++){const d=x[i]-m;v+=d*d}const k=1/Math.sqrt(v/n+1e-5);for(let i=0;i<n;i++)o[i]=(x[i]-m)*k*w[i]+b[i]}
+function step(tok,pos,want){const D=C.n_embd,H=C.n_head,hs=D/H,sc=1/Math.sqrt(hs),te=W['token_emb.weight'],pe=W['pos_emb.weight'];
+const x=new Float32Array(D),xn=new Float32Array(D),qkv=new Float32Array(3*D),at=new Float32Array(D),tm=new Float32Array(D),hid=new Float32Array(4*D),s=new Float32Array(C.block_size);
+for(let j=0;j<D;j++)x[j]=te.q[tok*D+j]*te.s[tok]+pe.q[pos*D+j]*pe.s[pos];
+for(let l=0;l<C.n_layer;l++){const p='blocks.'+l+'.';ln(x,W[p+'ln1.weight'],W[p+'ln1.bias'],xn);mv(W[p+'sa.qkv.weight'],xn,qkv);
+KC[l].set(qkv.subarray(D,2*D),pos*D);VC[l].set(qkv.subarray(2*D,3*D),pos*D);
+for(let h=0;h<H;h++){const o=h*hs;let mx=-1e30;for(let t=0;t<=pos;t++){let d=0;for(let i=0;i<hs;i++)d+=qkv[o+i]*KC[l][t*D+o+i];s[t]=d*sc;if(s[t]>mx)mx=s[t]}
+let sm=0;for(let t=0;t<=pos;t++){s[t]=Math.exp(s[t]-mx);sm+=s[t]}for(let t=0;t<=pos;t++)s[t]/=sm;
+if(cap)cap[l][h][pos]=s.slice(0,pos+1);for(let i=0;i<hs;i++){let a=0;for(let t=0;t<=pos;t++)a+=s[t]*VC[l][t*D+o+i];at[o+i]=a}}
+mv(W[p+'sa.proj.weight'],at,tm,W[p+'sa.proj.bias']);for(let j=0;j<D;j++)x[j]+=tm[j];
+ln(x,W[p+'ln2.weight'],W[p+'ln2.bias'],xn);mv(W[p+'ffwd.net.0.weight'],xn,hid,W[p+'ffwd.net.0.bias']);for(let j=0;j<hid.length;j++)hid[j]=gelu(hid[j]);
+mv(W[p+'ffwd.net.2.weight'],hid,tm,W[p+'ffwd.net.2.bias']);for(let j=0;j<D;j++)x[j]+=tm[j]}
+if(want){ln(x,W['ln_f.weight'],W['ln_f.bias'],xn);const L=new Float32Array(C.vocab_size);mv(W['lm_head.weight'],xn,L,W['lm_head.bias']);return L}}
+const fresh=()=>{KC=[];VC=[];for(let l=0;l<C.n_layer;l++){KC.push(new Float32Array(C.block_size*C.n_embd));VC.push(new Float32Array(C.block_size*C.n_embd))}};
+function run(){fresh();IDS=enc($('txt').value);cap=[];for(let l=0;l<C.n_layer;l++){cap.push([]);for(let h=0;h<C.n_head;h++)cap[l].push([])}
+IDS.forEach((t,i)=>{const r=step(t,i,i===IDS.length-1);if(r)LG=r});cap_=cap;cap=null;view()}
+let cap_;
+function probs(T){let mx=-1e30;for(const v of LG)if(v>mx)mx=v;const p=new Float64Array(LG.length);let s=0;for(let i=0;i<p.length;i++){p[i]=Math.exp((LG[i]-mx)/T);s+=p[i]}for(let i=0;i<p.length;i++)p[i]/=s;return p}
+function view(){$('chips').innerHTML=IDS.map(i=>`<span class="chip">${ts(i).replace(/</g,'&lt;')}<small>#${i}</small></span>`).join('');
+const T=+$('T').value;$('Tv').textContent=T;const p=probs(T),top=[...p.keys()].sort((a,b)=>p[b]-p[a]).slice(0,10);
+$('bars').innerHTML=top.map(i=>`<div class="bar"><b>${ts(i).replace(/</g,'&lt;')}</b><i style="width:${Math.max(1,p[i]*300)}px"></i>${(p[i]*100).toFixed(1)}%</div>`).join('');drawAtt()}
+function drawAtt(){const l=+$('L').value,h=+$('Hd').value,n=IDS.length,c=Math.max(8,Math.min(28,Math.floor(560/n))),m=80,cv=$('att');cv.width=m+n*c;cv.height=m+n*c;const g=cv.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,cv.width,cv.height);g.font='10px sans-serif';g.fillStyle='#8a91a2';
+for(let i=0;i<n;i++){g.textAlign='right';g.fillText(ts(IDS[i]).slice(0,10),m-3,m+i*c+c*.7);g.save();g.translate(m+i*c+c*.7,m-3);g.rotate(-Math.PI/2);g.textAlign='left';g.fillText(ts(IDS[i]).slice(0,10),0,0);g.restore()}
+for(let i=0;i<n;i++)for(let j=0;j<=i;j++){const v=cap_[l][h][i][j];g.fillStyle=`rgba(108,140,255,${Math.min(1,v*1.2)})`;g.fillRect(m+j*c,m+i*c,c-1,c-1)}}
+$('go').onclick=run;$('T').oninput=view;$('L').onchange=drawAtt;$('Hd').onchange=drawAtt;
+$('gen').onclick=async()=>{const T=+$('T').value;run();let out='',ids=IDS.slice();$('out').textContent='…';
+for(let n=0;n<150&&ids.length<C.block_size;n++){const p=probs(T),k=[...p.keys()].sort((a,b)=>p[b]-p[a]).slice(0,40);let c=0,u=[];for(const i of k){if([SP['<|user|>'],SP['<|bot|>']].includes(i))continue;u.push(i);c+=p[i];if(c>=.9)break}
+let r=Math.random()*u.reduce((s,i)=>s+p[i],0),nx=u[u.length-1];for(const i of u){r-=p[i];if(r<=0){nx=i;break}}
+if(nx===SP['<|eos|>'])break;ids.push(nx);if(!(Object.values(SP).includes(nx)))out+=V[nx];$('out').textContent=out;LG=step(nx,ids.length-1,true);await new Promise(r=>setTimeout(r,0))}
+$('out').textContent=out.trim()||'(пусто)'};
+
+// ---- правки
+const cols=(l,h,on)=>{const M=W['blocks.'+l+'.sa.proj.weight'],O=og(M.q),hs=C.n_embd/C.n_head;for(let r=0;r<M.rows;r++)for(let j=h*hs;j<(h+1)*hs;j++)M.q[r*M.cols+j]=on?O[r*M.cols+j]:0};
+const ffn=(l,on)=>{const M=W['blocks.'+l+'.ffwd.net.2.weight'],b=W['blocks.'+l+'.ffwd.net.2.bias'];M.q.set(on?og(M.q):new Int8Array(M.q.length));b.set(on?og(b):new Float32Array(b.length))};
+function init(){$('app').hidden=false;const L=$('L'),H=$('Hd');L.innerHTML='';H.innerHTML='';
+for(let i=0;i<C.n_layer;i++)L.add(new Option('Слой '+(i+1),i));for(let i=0;i<C.n_head;i++)H.add(new Option('Голова '+(i+1),i));
+const g=$('hg');g.innerHTML='';for(let l=0;l<C.n_layer;l++){g.append(Object.assign(document.createElement('span'),{textContent:'Слой '+(l+1)}));
+for(let h=0;h<C.n_head;h++){const b=document.createElement('button');b.textContent='Г'+(h+1);b.onclick=()=>{const k=l+','+h,on=offH.has(k);on?offH.delete(k):offH.add(k);cols(l,h,on);b.classList.toggle('off',!on);run()};g.append(b)}
+const f=document.createElement('button');f.textContent='ФФН';f.onclick=()=>{const on=offF.has(l);on?offF.delete(l):offF.add(l);ffn(l,on);f.classList.toggle('off',!on);run()};g.append(f)}
+const tn=$('tn');tn.innerHTML='';Object.keys(W).filter(n=>W[n].q).forEach(n=>tn.add(new Option(n,n)));tn.onchange=drawW;drawW();run()}
+$('rst').onclick=()=>{U8.set(ORIG);offH.clear();offF.clear();document.querySelectorAll('.off').forEach(b=>b.classList.remove('off'));$('bmsg').textContent='';drawW();run()};
+$('bv').oninput=()=>$('bvv').textContent=($('bv').value>0?'+':'')+$('bv').value;
+$('bset').onclick=()=>{const t=$('tk').value;const id=TOK2ID.get(t)??TOK2ID.get(t.toLowerCase());if(id===undefined){$('bmsg').textContent='Такого токена нет в словаре. Попробуйте слово целиком в нижнем регистре или короче.';return}
+const b=W['lm_head.bias'];b[id]=og(b)[id]+(+$('bv').value);$('bmsg').textContent=`Токен #${id} получил бонус ${$('bv').value}. Смотрите блок 3.`;run()};
+function drawW(){const n=$('tn').value,M=W[n],R=Math.min(128,M.rows),Cc=Math.min(128,M.cols),cv=$('wc');cv.width=Cc*4;cv.height=R*4;const g=cv.getContext('2d');
+for(let r=0;r<R;r++)for(let c=0;c<Cc;c++){const v=M.q[r*M.cols+c]/127,a=Math.min(1,Math.abs(v)*2.5);g.fillStyle=v>=0?`rgba(80,140,255,${a})`:`rgba(255,80,80,${a})`;g.fillRect(c*4,r*4,4,4)}
+$('wi').textContent=`${n}: ${M.rows}×${M.cols} = ${(M.rows*M.cols).toLocaleString('ru')} весов, хранятся как целые числа −127…127.`;
+cv.onclick=e=>{const k=cv.width/cv.getBoundingClientRect().width,r=Math.floor(e.offsetY*k/4),c=Math.floor(e.offsetX*k/4);M.q[r*M.cols+c]=0;drawW();run()}}
+$('exp').onclick=()=>{const p=[];for(let i=0;i<U8.length;i+=0x8000)p.push(String.fromCharCode.apply(null,U8.subarray(i,i+0x8000)));
+const b=new Blob([HEAD+btoa(p.join(''))+TAIL],{type:'text/html'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='chat_modified.html';a.click()};
+</script></body></html>
